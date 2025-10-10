@@ -6,10 +6,7 @@ public interface IExchangeRateRepository
 {
     public Task<ExchangeRate> GetExchangeRatesFromRemote(CancellationToken cancellationToken = default);
 
-    public Task<ExchangeRate> GetHistoricalRatesFromRemote(DateOnly dateOnly,
-        CancellationToken cancellationToken = default);
-
-    public Task<ExchangeRate> GetStoredExchangeRates(DateTimeOffset dateTimeOffset,
+    public Task<ExchangeRate> GetStoredExchangeRatesWithFallback(DateTimeOffset dateTimeOffset,
         CancellationToken cancellationToken = default);
 
     public Task<ExchangeRate> GetYearlyAverageExchangeRate(int year, CancellationToken cancellationToken = default);
