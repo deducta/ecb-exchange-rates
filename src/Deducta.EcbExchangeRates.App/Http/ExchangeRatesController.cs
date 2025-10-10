@@ -19,7 +19,8 @@ public class ExchangeRatesController(IExchangeRateRepository exchangeRateReposit
         {
             return req.CreateResponse(HttpStatusCode.BadRequest);
         }
-        var rates = await exchangeRateRepository.GetStoredExchangeRates(dateParsed);
+
+        var rates = await exchangeRateRepository.GetStoredExchangeRatesWithFallback(dateParsed);
         var response = req.CreateResponse(HttpStatusCode.OK);
         response.Headers.Add("Content-Type", "application/json");
         await response.WriteStringAsync(JsonSerializer.Serialize(rates, new JsonSerializerOptions()
@@ -28,7 +29,7 @@ public class ExchangeRatesController(IExchangeRateRepository exchangeRateReposit
         }));
         return response;
     }
-    
+
     [Function(nameof(GetYearlyAvarageRates))]
     public async Task<HttpResponseData> GetYearlyAvarageRates(
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "exchange-rates/yearly-average/{year}")]
@@ -41,6 +42,7 @@ public class ExchangeRatesController(IExchangeRateRepository exchangeRateReposit
         {
             return req.CreateResponse(HttpStatusCode.BadRequest);
         }
+
         var rates = await exchangeRateRepository.GetYearlyAverageExchangeRate(year);
         var response = req.CreateResponse(HttpStatusCode.OK);
         response.Headers.Add("Content-Type", "application/json");

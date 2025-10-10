@@ -18,47 +18,14 @@ public class CurrencyApiExchangeRateRepository(
     public async Task<ExchangeRate> GetExchangeRatesFromRemote(CancellationToken cancellationToken = default)
     {
         var today = DateTimeOffset.UtcNow;
-        var url = $"{httpClient.BaseAddress}v3/latest";
         var dateOnly = new DateTimeOffset(today.Year, today.Month, today.Day, 0, 0, 0, TimeSpan.Zero);
-
-        // Use UriBuilder to set up query parameters
-        var uriBuilder = new UriBuilder(url);
-        var query = HttpUtility.ParseQueryString(string.Empty);
-
-        query["apikey"] = apiKey;
-        query["currencies"] = "";
-        query["base_currency"] = "EUR";
-
-        // Assign the constructed query string back to the UriBuilder
-        uriBuilder.Query = query.ToString();
-        var jsonOptions = new JsonSerializerOptions()
-        {
-            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-            AllowTrailingCommas = true
-        };
-        var fullUrl = uriBuilder.ToString();
-        var response =
-            await httpClient.GetFromJsonAsync<CurrencyResponse>(fullUrl, jsonOptions, cancellationToken);
-        if (response == null)
-        {
-            throw new SerializationException("Could not deserialize currency");
-        }
-
-        return new ExchangeRate
-        {
-            Date = dateOnly.Ticks,
-            Rates = response.Data.Select(d => new RateDto
-            {
-                Rate = d.Value.Value,
-                CurrencyCode = d.Key
-            }).ToList()
-        };
+        return await GetExchangeRatesFromRemote(dateOnly, cancellationToken);
     }
 
-    public async Task<ExchangeRate> GetHistoricalRatesFromRemote(DateOnly date,
+    private async Task<ExchangeRate> GetExchangeRatesFromRemote(DateTimeOffset date,
         CancellationToken cancellationToken = default)
     {
-        var url = $"{httpClient.BaseAddress}v3/historical";
+        var url = $"{httpClient.BaseAddress}v3/latest";
         var dateOnly = new DateTimeOffset(date.Year, date.Month, date.Day, 0, 0, 0, TimeSpan.Zero);
 
         // Use UriBuilder to set up query parameters
@@ -68,7 +35,6 @@ public class CurrencyApiExchangeRateRepository(
         query["apikey"] = apiKey;
         query["currencies"] = "";
         query["base_currency"] = "EUR";
-        query["date"] = dateOnly.ToString("yyyy-MM-dd");
 
         // Assign the constructed query string back to the UriBuilder
         uriBuilder.Query = query.ToString();
@@ -96,7 +62,18 @@ public class CurrencyApiExchangeRateRepository(
         };
     }
 
-    public async Task<ExchangeRate> GetStoredExchangeRates(DateTimeOffset date,
+    public async Task<ExchangeRate> GetStoredExchangeRatesWithFallback(DateTimeOffset date,
+        CancellationToken cancellationToken = default)
+    {
+        var foundDate = await GetStoredExchangeRates(date, cancellationToken);
+        if (foundDate != null) return foundDate;
+        var rates = await GetExchangeRatesFromRemote(date, cancellationToken);
+        await StoreExchangeRates([rates], cancellationToken);
+        var recordedDate = await GetStoredExchangeRates(date, cancellationToken);
+        return recordedDate ?? throw new Exception("Could not find stored rates");
+    }
+
+    public async Task<ExchangeRate?> GetStoredExchangeRates(DateTimeOffset date,
         CancellationToken cancellationToken = default)
     {
         var startOfDay = date.Date;
@@ -107,7 +84,7 @@ public class CurrencyApiExchangeRateRepository(
             Builders<ExchangeRate>.Filter.Lt(x => x.Date, startOfNextDay.Ticks)
         );
         var data = await collection.FindAsync(filter, cancellationToken: cancellationToken);
-        return await data.FirstAsync(cancellationToken: cancellationToken);
+        return await data.FirstOrDefaultAsync(cancellationToken: cancellationToken);
     }
 
     public async Task<ExchangeRate> GetYearlyAverageExchangeRate(int year,
@@ -122,6 +99,7 @@ public class CurrencyApiExchangeRateRepository(
         );
         var dataCursor = await collection.FindAsync(filter, cancellationToken: cancellationToken);
         var data = await dataCursor.ToListAsync(cancellationToken: cancellationToken);
+        data = data.DistinctBy(i => i.Date).ToList();
         var dayWithMostRates = data.OrderByDescending(i => i.Rates.Count).First();
         var rates = dayWithMostRates.Rates.Select(rate =>
         {
