@@ -1,9 +1,12 @@
 using System.Security.Authentication;
+using Azure.Identity;
+using Deducta.EcbExchangeRates.App.Configuration;
 using Deducta.EcbExchangeRates.App.CurrencyApi;
 using Deducta.EcbExchangeRates.App.Dtos;
 using Deducta.EcbExchangeRates.App.ExchangeRates;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Builder;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using MongoDB.Bson.Serialization;
@@ -12,6 +15,17 @@ using MongoDB.Driver;
 var builder = FunctionsApplication.CreateBuilder(args);
 
 builder.ConfigureFunctionsWebApplication();
+
+var keyVaultUri = builder.Configuration["KEYVAULT_URI"];
+if (!string.IsNullOrWhiteSpace(keyVaultUri))
+{
+    var appPrefix = builder.Configuration["APP_NAME"] ?? string.Empty;
+    builder.Configuration.AddAzureKeyVault(
+        new Uri(keyVaultUri),
+        new DefaultAzureCredential(),
+        new PrefixKeyVaultSecretManager(appPrefix));
+}
+
 BsonClassMap.RegisterClassMap<ExchangeRate>(
     classMap =>
     {
