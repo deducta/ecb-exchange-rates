@@ -1,0 +1,96 @@
+openapi: 3.0.3
+info:
+  title: Deducta Exchange Rate API
+  description: API for retrieving ECB backed exchange rates used by the Deducta Platform
+  version: 1.0.0
+
+servers:
+  - url: https://api.deducta.ai/fx-rates/api
+    description: API base path
+
+paths:
+  /exchange-rates/{date}:
+    get:
+      summary: Get exchange rates for a specific date
+      description: Retrieves stored exchange rates for the specified date with fallback to remote source if not found
+      operationId: getExchangeRates
+      parameters:
+        - name: date
+          in: path
+          required: true
+          description: Date in any parseable format (e.g., 2024-01-15, 2024-01-15T00:00:00Z)
+          schema:
+            type: string
+            format: date-time
+          example: "2024-01-15"
+      responses:
+        '200':
+          description: Successfully retrieved exchange rates
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExchangeRate'
+        '400':
+          description: Invalid date format
+
+  /exchange-rates/yearly-average/{year}:
+    get:
+      summary: Get yearly average exchange rates
+      description: Retrieves the average exchange rates for the specified year (valid range 2000 to current year)
+      operationId: getYearlyAverageRates
+      parameters:
+        - name: year
+          in: path
+          required: true
+          description: Year between 2000 and current year
+          schema:
+            type: integer
+            minimum: 2000
+            maximum: 2025
+          example: 2024
+      responses:
+        '200':
+          description: Successfully retrieved yearly average exchange rates
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExchangeRate'
+        '400':
+          description: Invalid year (must be between 2000 and current year)
+
+components:
+  schemas:
+    ExchangeRate:
+      type: object
+      required:
+        - date
+        - rates
+      properties:
+        date:
+          type: integer
+          format: int64
+          description: Unix timestamp in milliseconds (ticks)
+          example: 1705276800000
+        rates:
+          type: array
+          description: List of exchange rates for different currencies
+          items:
+            $ref: '#/components/schemas/Rate'
+
+    Rate:
+      type: object
+      required:
+        - rate
+        - currencyCode
+      properties:
+        rate:
+          type: number
+          format: decimal
+          description: Exchange rate value
+          example: 1.0923
+        currencyCode:
+          type: string
+          description: ISO 4217 currency code
+          example: "USD"
+          minLength: 3
+          maxLength: 3
