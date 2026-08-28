@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net.Http.Json;
 using System.Runtime.Serialization;
 using System.Text.Json;
@@ -19,13 +20,16 @@ public class CurrencyApiExchangeRateRepository(
     {
         var today = DateTimeOffset.UtcNow;
         var dateOnly = new DateTimeOffset(today.Year, today.Month, today.Day, 0, 0, 0, TimeSpan.Zero);
-        return await GetExchangeRatesFromRemote(dateOnly, cancellationToken);
+        return await GetExchangeRatesFromRemote(dateOnly, false, cancellationToken);
     }
 
-    private async Task<ExchangeRate> GetExchangeRatesFromRemote(DateTimeOffset date,
+    private async Task<ExchangeRate> GetExchangeRatesFromRemote(
+        DateTimeOffset date,
+        bool historical,
         CancellationToken cancellationToken = default)
     {
-        var url = $"{httpClient.BaseAddress}v3/latest";
+        var endpoint = historical ? "v3/historical" : "v3/latest";
+        var url = $"{httpClient.BaseAddress}{endpoint}";
         var dateOnly = new DateTimeOffset(date.Year, date.Month, date.Day, 0, 0, 0, TimeSpan.Zero);
 
         // Use UriBuilder to set up query parameters
@@ -35,6 +39,10 @@ public class CurrencyApiExchangeRateRepository(
         query["apikey"] = apiKey;
         query["currencies"] = "";
         query["base_currency"] = "EUR";
+        if (historical)
+        {
+            query["date"] = dateOnly.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        }
 
         // Assign the constructed query string back to the UriBuilder
         uriBuilder.Query = query.ToString();
@@ -54,6 +62,7 @@ public class CurrencyApiExchangeRateRepository(
         return new ExchangeRate
         {
             Date = dateOnly.Ticks,
+            EffectiveDate = EffectiveDate(response.Meta.LastUpdatedAt, dateOnly).Ticks,
             Rates = response.Data.Select(d => new RateDto
             {
                 Rate = d.Value.Value,
@@ -66,8 +75,12 @@ public class CurrencyApiExchangeRateRepository(
         CancellationToken cancellationToken = default)
     {
         var foundDate = await GetStoredExchangeRates(date, cancellationToken);
-        if (foundDate != null) return foundDate;
-        var rates = await GetExchangeRatesFromRemote(date, cancellationToken);
+        // Records created before historical lookups were introduced have no effective date and
+        // may contain the then-current rates under a historical date. Refresh them once and
+        // replace them so they cannot be used for reporting conversions.
+        if (foundDate?.EffectiveDate != null) return foundDate;
+
+        var rates = await GetExchangeRatesFromRemote(date, true, cancellationToken);
         await StoreExchangeRates([rates], cancellationToken);
         var recordedDate = await GetStoredExchangeRates(date, cancellationToken);
         return recordedDate ?? throw new Exception("Could not find stored rates");
@@ -122,8 +135,25 @@ public class CurrencyApiExchangeRateRepository(
     public async Task StoreExchangeRates(List<ExchangeRate> exchangeRates,
         CancellationToken cancellationToken = default)
     {
-        await collection.InsertManyAsync(exchangeRates, cancellationToken: cancellationToken);
+        foreach (var exchangeRate in exchangeRates)
+        {
+            var filter = Builders<ExchangeRate>.Filter.Eq(rate => rate.Date, exchangeRate.Date);
+            await collection.ReplaceOneAsync(
+                filter,
+                exchangeRate,
+                new ReplaceOptions { IsUpsert = true },
+                cancellationToken);
+        }
     }
+
+    private static DateTimeOffset EffectiveDate(string lastUpdatedAt, DateTimeOffset fallback) =>
+        DateTimeOffset.TryParse(
+            lastUpdatedAt,
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+            out var parsed)
+            ? new DateTimeOffset(parsed.Year, parsed.Month, parsed.Day, 0, 0, 0, TimeSpan.Zero)
+            : fallback;
 
     public class CurrencyResponse
     {

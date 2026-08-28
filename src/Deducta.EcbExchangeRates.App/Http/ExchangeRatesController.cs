@@ -1,12 +1,16 @@
 using System.Net;
+using System.Net.Http.Json;
 using System.Text.Json;
+using Deducta.EcbExchangeRates.App.Dtos;
 using Deducta.EcbExchangeRates.App.ExchangeRates;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 
 namespace Deducta.EcbExchangeRates.App.Http;
 
-public class ExchangeRatesController(IExchangeRateRepository exchangeRateRepository)
+public class ExchangeRatesController(
+    IExchangeRateRepository exchangeRateRepository,
+    ExchangeRateResolver exchangeRateResolver)
 {
     [Function(nameof(GetExchangeRates))]
     public async Task<HttpResponseData> GetExchangeRates(
@@ -28,6 +32,33 @@ public class ExchangeRatesController(IExchangeRateRepository exchangeRateReposit
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase
         }));
         return response;
+    }
+
+    [Function(nameof(ResolveExchangeRates))]
+    public async Task<HttpResponseData> ResolveExchangeRates(
+        [HttpTrigger(AuthorizationLevel.Function, "post", Route = "exchange-rates/resolve")]
+        HttpRequestData req,
+        FunctionContext context)
+    {
+        try
+        {
+            var request = await req.ReadFromJsonAsync<ResolveExchangeRatesRequest>(context.CancellationToken);
+            if (request?.Items == null)
+            {
+                return req.CreateResponse(HttpStatusCode.BadRequest);
+            }
+
+            var rates = await exchangeRateResolver.Resolve(request.Items, context.CancellationToken);
+            var response = req.CreateResponse(HttpStatusCode.OK);
+            await response.WriteAsJsonAsync(rates, context.CancellationToken);
+            return response;
+        }
+        catch (Exception exception) when (exception is ArgumentException or JsonException)
+        {
+            var response = req.CreateResponse(HttpStatusCode.BadRequest);
+            await response.WriteAsJsonAsync(new { error = exception.Message }, context.CancellationToken);
+            return response;
+        }
     }
 
     [Function(nameof(GetYearlyAvarageRates))]

@@ -55,6 +55,8 @@ builder.Services.AddTransient<IExchangeRateRepository>(sp =>
         sp.GetRequiredService<IHttpClientFactory>().CreateClient("CurrencyApi"),
         openExchangeRateKey, collection);
 });
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddScoped<ExchangeRateResolver>();
 
 builder.Services
     .AddApplicationInsightsTelemetryWorkerService()
