@@ -120,6 +120,9 @@ public sealed class ExchangeRateResolverTests
                 requirement => new ExchangeRateLookupResult(
                     new ExchangeRateObservation
                     {
+                        Id = ExchangeRateObservation.CreateId(
+                            ExchangeRateProviders.Ecb,
+                            AtMidnight(requirement.Key).Ticks),
                         Date = AtMidnight(requirement.Key).Ticks,
                         EffectiveDate = AtMidnight(lookupDate.AddDays(-1)).Ticks,
                         Provider = ExchangeRateProviders.Ecb,

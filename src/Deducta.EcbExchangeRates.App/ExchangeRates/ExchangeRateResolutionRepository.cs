@@ -187,6 +187,7 @@ public sealed class ExchangeRateResolutionRepository(
             .GroupBy(rate => (rate.Provider, rate.Date))
             .Select(group => new ExchangeRateObservation
             {
+                Id = ExchangeRateObservation.CreateId(group.Key.Provider, group.Key.Date),
                 Date = group.Key.Date,
                 EffectiveDate = group.Select(rate => rate.EffectiveDate).FirstOrDefault(date => date is > 0),
                 Provider = group.Key.Provider,
