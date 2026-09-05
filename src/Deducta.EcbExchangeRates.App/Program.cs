@@ -3,6 +3,7 @@ using Azure.Identity;
 using Deducta.EcbExchangeRates.App.Configuration;
 using Deducta.EcbExchangeRates.App.CurrencyApi;
 using Deducta.EcbExchangeRates.App.Dtos;
+using Deducta.EcbExchangeRates.App.Ecb;
 using Deducta.EcbExchangeRates.App.ExchangeRates;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Builder;
@@ -38,7 +39,9 @@ var openExchangeRateKey = builder.Configuration.GetSection("OpenExchangeRateApiK
                           throw new NullReferenceException("OpenExchangeRateApiKey");
 builder.Services.AddHttpClient("CurrencyApi",
     client => { client.BaseAddress = new Uri("https://api.currencyapi.com"); });
-builder.Services.AddScoped<MongoClient>(_ =>
+builder.Services.AddHttpClient("Ecb",
+    client => { client.BaseAddress = new Uri("https://data-api.ecb.europa.eu/service/"); });
+builder.Services.AddSingleton<MongoClient>(_ =>
 {
     var settings = MongoClientSettings.FromUrl(
         new MongoUrl(mongoDbConnectionString)
@@ -55,6 +58,23 @@ builder.Services.AddTransient<IExchangeRateRepository>(sp =>
         sp.GetRequiredService<IHttpClientFactory>().CreateClient("CurrencyApi"),
         openExchangeRateKey, collection);
 });
+builder.Services.AddSingleton<IExchangeRateStore>(sp =>
+{
+    var mongoClient = sp.GetRequiredService<MongoClient>();
+    var collection = mongoClient
+        .GetDatabase("Rates")
+        .GetCollection<ExchangeRateObservation>("HistoricalRatesV2");
+    return new MongoExchangeRateStore(collection);
+});
+builder.Services.AddSingleton<IEcbExchangeRateSource>(sp =>
+    new EcbExchangeRateSource(sp.GetRequiredService<IHttpClientFactory>().CreateClient("Ecb")));
+builder.Services.AddSingleton<ICurrencyApiExchangeRateSource>(sp =>
+    new CurrencyApiExchangeRateSource(
+        sp.GetRequiredService<IHttpClientFactory>().CreateClient("CurrencyApi"),
+        openExchangeRateKey,
+        sp.GetRequiredService<TimeProvider>(),
+        sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<CurrencyApiExchangeRateSource>>()));
+builder.Services.AddScoped<IExchangeRateResolutionRepository, ExchangeRateResolutionRepository>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<ExchangeRateResolver>();
 

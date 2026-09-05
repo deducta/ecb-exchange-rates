@@ -10,7 +10,8 @@ namespace Deducta.EcbExchangeRates.App.Http;
 
 public class ExchangeRatesController(
     IExchangeRateRepository exchangeRateRepository,
-    ExchangeRateResolver exchangeRateResolver)
+    ExchangeRateResolver exchangeRateResolver,
+    ICurrencyApiExchangeRateSource currencyApi)
 {
     [Function(nameof(GetExchangeRates))]
     public async Task<HttpResponseData> GetExchangeRates(
@@ -31,6 +32,26 @@ public class ExchangeRatesController(
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase
         }));
+        return response;
+    }
+
+    [Function(nameof(GetExchangeRateStatus))]
+    public async Task<HttpResponseData> GetExchangeRateStatus(
+        [HttpTrigger(AuthorizationLevel.Function, "get", Route = "exchange-rates/v2/status")]
+        HttpRequestData req,
+        FunctionContext context)
+    {
+        var quota = await currencyApi.GetQuotaAsync(context.CancellationToken);
+        var response = req.CreateResponse(HttpStatusCode.OK);
+        await response.WriteAsJsonAsync(
+            new
+            {
+                primaryProvider = ExchangeRateProviders.Ecb,
+                fallbackProvider = ExchangeRateProviders.CurrencyApi,
+                fallbackAvailable = quota.Available,
+                fallbackRemainingQuota = quota.Remaining,
+            },
+            context.CancellationToken);
         return response;
     }
 
