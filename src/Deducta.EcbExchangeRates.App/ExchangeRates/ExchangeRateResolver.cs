@@ -1,15 +1,12 @@
-using System.Collections.Concurrent;
 using Deducta.EcbExchangeRates.App.Dtos;
 
 namespace Deducta.EcbExchangeRates.App.ExchangeRates;
 
 public sealed class ExchangeRateResolver(
-    IExchangeRateRepository exchangeRateRepository,
+    IExchangeRateResolutionRepository exchangeRateRepository,
     TimeProvider timeProvider)
 {
     public const int MaximumBatchSize = 500;
-
-    private const int MaximumParallelDates = 8;
 
     public async Task<IReadOnlyList<ResolvedExchangeRate>> Resolve(
         IReadOnlyList<ExchangeRateRequest> requests,
@@ -24,41 +21,37 @@ public sealed class ExchangeRateResolver(
             request.ConversionDate,
             request.ConversionDate >= today ? today.AddDays(-1) : request.ConversionDate)).ToList();
 
-        var dates = normalized
+        var requirements = normalized
             .Where(request => request.SourceCurrency != request.TargetCurrency)
-            .Select(request => request.LookupDate)
-            .Distinct()
-            .ToList();
-        var ratesByDate = new ConcurrentDictionary<DateOnly, ExchangeRate>();
-
-        await Parallel.ForEachAsync(
-            dates,
-            new ParallelOptions
-            {
-                CancellationToken = cancellationToken,
-                MaxDegreeOfParallelism = MaximumParallelDates,
-            },
-            async (date, token) =>
-            {
-                var atMidnight = new DateTimeOffset(date.Year, date.Month, date.Day, 0, 0, 0, TimeSpan.Zero);
-                ratesByDate[date] = await exchangeRateRepository.GetStoredExchangeRatesWithFallback(
-                    atMidnight,
-                    token);
-            });
+            .GroupBy(request => request.LookupDate)
+            .ToDictionary(
+                group => group.Key,
+                group => (IReadOnlySet<string>)group
+                    .SelectMany(request => new[] { request.SourceCurrency, request.TargetCurrency })
+                    .ToHashSet(StringComparer.Ordinal));
+        var ratesByDate = requirements.Count == 0
+            ? new Dictionary<DateOnly, ExchangeRateLookupResult>()
+            : await exchangeRateRepository.ResolveAsync(requirements, cancellationToken);
 
         return normalized.Select(request => Resolve(request, ratesByDate)).ToList();
     }
 
     private static ResolvedExchangeRate Resolve(
         NormalizedRequest request,
-        IReadOnlyDictionary<DateOnly, ExchangeRate> ratesByDate)
+        IReadOnlyDictionary<DateOnly, ExchangeRateLookupResult> ratesByDate)
     {
         if (request.SourceCurrency == request.TargetCurrency)
         {
             return Result(request, request.LookupDate, 1m, ExchangeRateResolutionStatuses.Resolved);
         }
 
-        var daily = ratesByDate[request.LookupDate];
+        var lookup = ratesByDate[request.LookupDate];
+        var daily = lookup.Observation;
+        if (daily == null)
+        {
+            return Result(request, request.LookupDate, null, lookup.Status);
+        }
+
         var rates = daily.Rates.ToDictionary(
             rate => rate.CurrencyCode.ToUpperInvariant(),
             rate => rate.Rate,
@@ -66,9 +59,7 @@ public sealed class ExchangeRateResolver(
         var sourceRate = request.SourceCurrency == "EUR" ? 1m : rates.GetValueOrDefault(request.SourceCurrency);
         var targetRate = request.TargetCurrency == "EUR" ? 1m : rates.GetValueOrDefault(request.TargetCurrency);
         decimal? rate = sourceRate == 0 || targetRate == 0 ? null : targetRate / sourceRate;
-        var effectiveDate = daily.EffectiveDate is > 0
-            ? DateOnly.FromDateTime(new DateTime(daily.EffectiveDate.Value, DateTimeKind.Utc))
-            : request.LookupDate;
+        var effectiveDate = DateOnly.FromDateTime(new DateTime(daily.EffectiveDate, DateTimeKind.Utc));
 
         return Result(
             request,

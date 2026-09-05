@@ -106,40 +106,40 @@ public sealed class ExchangeRateResolverTests
         public override DateTimeOffset GetUtcNow() => now;
     }
 
-    private sealed class RecordingRepository(DateOnly lookupDate, List<RateDto> rates) : IExchangeRateRepository
+    private sealed class RecordingRepository(DateOnly lookupDate, List<RateDto> rates) : IExchangeRateResolutionRepository
     {
         public List<DateOnly> RequestedDates { get; } = [];
 
-        public Task<ExchangeRate> GetExchangeRatesFromRemote(CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
-
-        public Task<ExchangeRate> GetStoredExchangeRatesWithFallback(
-            DateTimeOffset dateTimeOffset,
+        public Task<IReadOnlyDictionary<DateOnly, ExchangeRateLookupResult>> ResolveAsync(
+            IReadOnlyDictionary<DateOnly, IReadOnlySet<string>> requirements,
             CancellationToken cancellationToken = default)
         {
-            RequestedDates.Add(DateOnly.FromDateTime(dateTimeOffset.UtcDateTime));
-            return Task.FromResult(
-                new ExchangeRate
-                {
-                    Date = dateTimeOffset.Ticks,
-                    EffectiveDate = new DateTimeOffset(
-                        lookupDate.AddDays(-1).Year,
-                        lookupDate.AddDays(-1).Month,
-                        lookupDate.AddDays(-1).Day,
-                        0,
-                        0,
-                        0,
-                        TimeSpan.Zero).Ticks,
-                    Rates = rates,
-                });
+            RequestedDates.AddRange(requirements.Keys);
+            IReadOnlyDictionary<DateOnly, ExchangeRateLookupResult> resolved = requirements.ToDictionary(
+                requirement => requirement.Key,
+                requirement => new ExchangeRateLookupResult(
+                    new ExchangeRateObservation
+                    {
+                        Date = AtMidnight(requirement.Key).Ticks,
+                        EffectiveDate = AtMidnight(lookupDate.AddDays(-1)).Ticks,
+                        Provider = ExchangeRateProviders.Ecb,
+                        Rates = rates,
+                    },
+                    ExchangeRateLookupStatuses.Resolved));
+            return Task.FromResult(resolved);
         }
 
-        public Task<ExchangeRate> GetYearlyAverageExchangeRate(
-            int year,
-            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task RefreshRecentAsync(CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
 
-        public Task StoreExchangeRates(
-            List<ExchangeRate> exchangeRates,
-            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        private static DateTimeOffset AtMidnight(DateOnly date) =>
+            new(
+                date.Year,
+                date.Month,
+                date.Day,
+                0,
+                0,
+                0,
+                TimeSpan.Zero);
     }
 }
