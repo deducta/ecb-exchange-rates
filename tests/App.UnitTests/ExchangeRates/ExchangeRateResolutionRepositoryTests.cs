@@ -112,6 +112,7 @@ public sealed class ExchangeRateResolutionRepositoryTests
         var atMidnight = new DateTimeOffset(date.Year, date.Month, date.Day, 0, 0, 0, TimeSpan.Zero);
         return new ExchangeRateObservation
         {
+            Id = ExchangeRateObservation.CreateId(provider, atMidnight.Ticks),
             Date = atMidnight.Ticks,
             EffectiveDate = atMidnight.Ticks,
             Provider = provider,

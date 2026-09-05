@@ -35,6 +35,7 @@ public sealed class EcbExchangeRateSource(HttpClient httpClient) : IEcbExchangeR
                 var atMidnight = AtMidnight(group.Key);
                 return new ExchangeRateObservation
                 {
+                    Id = ExchangeRateObservation.CreateId(ExchangeRateProviders.Ecb, atMidnight.Ticks),
                     Date = atMidnight.Ticks,
                     EffectiveDate = atMidnight.Ticks,
                     Provider = ExchangeRateProviders.Ecb,

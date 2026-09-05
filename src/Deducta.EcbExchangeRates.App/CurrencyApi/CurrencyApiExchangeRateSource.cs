@@ -108,6 +108,7 @@ public sealed class CurrencyApiExchangeRateSource(
             return new CurrencyApiRateResult(
                 new ExchangeRateObservation
                 {
+                    Id = ExchangeRateObservation.CreateId(ExchangeRateProviders.CurrencyApi, atMidnight.Ticks),
                     Date = atMidnight.Ticks,
                     EffectiveDate = atMidnight.Ticks,
                     Provider = ExchangeRateProviders.CurrencyApi,
