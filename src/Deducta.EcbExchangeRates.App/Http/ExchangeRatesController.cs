@@ -55,9 +55,9 @@ public class ExchangeRatesController(
         return response;
     }
 
-    [Function(nameof(ResolveExchangeRates))]
-    public async Task<HttpResponseData> ResolveExchangeRates(
-        [HttpTrigger(AuthorizationLevel.Function, "post", Route = "exchange-rates/resolve")]
+    [Function(nameof(GetExchangeRatesBatch))]
+    public async Task<HttpResponseData> GetExchangeRatesBatch(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "exchange-rates/batch")]
         HttpRequestData req,
         FunctionContext context)
     {
